@@ -1,0 +1,8 @@
+ddddocr>=1.6.1
+keyboard>=0.13.5
+numpy>=2.3.0
+opencv-python>=4.10.0
+Pillow>=11.2.1
+PyAutoGUI>=0.9.54
+PyDirectInput>=1.0.4
+PyGetWindow>=0.0.9

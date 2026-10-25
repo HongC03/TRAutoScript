@@ -1,0 +1,7 @@
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+.env
+autoPWD.txt
+three_knight_coupon_stats.json
