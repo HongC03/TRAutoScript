@@ -68,7 +68,10 @@ class ThreeKnightCouponWorkflow:
         return self.settings.image_dir / image_name
 
     def _template_variants(self, image_name, image_path):
-        if image_name not in self.settings.scaled_template_image_names:
+        if (
+            image_name not in self.settings.scaled_template_image_names
+            and image_name != self.settings.three_knight_point_image
+        ):
             return (image_path,)
         if image_name in self._template_cache:
             return self._template_cache[image_name]
@@ -122,7 +125,10 @@ class ThreeKnightCouponWorkflow:
 
         if deadline is None:
             deadline = time.monotonic() + self.settings.image_timeout_seconds
-        small_template = image_name in self.settings.small_template_image_names
+        small_template = (
+            image_name in self.settings.small_template_image_names
+            or image_name == self.settings.three_knight_point_image
+        )
         confidence = (
             self.settings.small_template_confidence
             if small_template else self.settings.match_confidence

@@ -22,13 +22,21 @@ From the project root:
 py -m event_script.afk_three_knight
 ```
 
-The default task trigger is `scr/magic_map.png`, the match-end template is `scr/conan_end.png`, and the Three Knight coupon workflow runs at startup and then every 30 minutes after a match ends. To use a different trigger image:
+The default task trigger is `scr/magic_map.png`, the match-end template is `scr/conan_end.png`, and the Three Knight coupon workflow runs at startup and then becomes eligible again after 30 minutes, at the next match end. To use a different trigger image:
 
 ```powershell
 py -m event_script.afk_three_knight --target-image your_task.png
 ```
 
 Images are resolved relative to `scr/`; absolute paths are also accepted. Use `--workflow farm` to run the scheduled farm flow instead of the default coupon redemption flow. Add `--status-window` for the desktop toggle and dashboard. Run `py -m event_script.afk_three_knight --help` to see all options.
+
+To use a different Three Knight point coupon template, set `--three-knight-point-image` to a filename under `scr/` or an absolute image path:
+
+```powershell
+py -m event_script.afk_three_knight --three-knight-point-image three_knight_point_alt.png
+```
+
+Set the repeat interval in minutes with `--three-knight-coupon-interval-minutes` (for example, `--three-knight-coupon-interval-minutes 5` for five minutes). Use `0` to disable repeats.
 
 The game must be open and the Windows desktop session unlocked. `game_supervisor.py` can also launch/restart Tales Runner when configured with credentials in a local `autoPWD.txt` containing `account=...` and `password=...`; keep that file private. The launcher shortcut is expected at `C:\Users\Public\Desktop\TalesRunner.lnk`.
 

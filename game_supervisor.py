@@ -32,6 +32,7 @@ TR_PATH = r"C:\Users\Public\Desktop\TalesRunner.lnk"
 CHECK_INTERVAL = 1
 
 _ocr = None
+_ocr_resolution_scale = None
 gui.useImageNotFoundException(False)
 
 def asset(name):
@@ -95,6 +96,26 @@ def getOcr():
     return _ocr
 
 
+def set_ocr_resolution(resolution):
+    """Choose automatic, 1080p (1x), or 4K (2x) OCR template scaling."""
+    global _ocr_resolution_scale
+    scales = {"auto": None, "1080p": 1.0, "4k": 2.0}
+    try:
+        _ocr_resolution_scale = scales[resolution.lower()]
+    except (AttributeError, KeyError) as error:
+        raise ValueError("OCR resolution must be 'auto', '1080p', or '4k'") from error
+
+
+def _locateVerificationCodePrompt(region=None):
+    return locate_on_screen_scaled(
+        asset("verification_code.png"),
+        confidence=0.89,
+        region=region,
+        preferred_scale=_ocr_resolution_scale,
+        return_scale=True,
+    )
+
+
 def _verificationCodeRegion(find, scale=1.0):
     return (
         int(round(find[0] + 109 * scale)),
@@ -120,12 +141,7 @@ def previewVerificationCodeCapture(find=None, region=None, threshold=58):
     """Locate and show the verification-code crop and its OCR-ready image."""
     scale = 1.0
     if find is None:
-        find, scale = locate_on_screen_scaled(
-            asset("verification_code.png"),
-            confidence=0.89,
-            region=region,
-            return_scale=True,
-        )
+        find, scale = _locateVerificationCodePrompt(region=region)
     if find is None:
         screen_image = capture_screen()
         screen_image.show(title="Primary monitor screenshot")
@@ -196,6 +212,7 @@ def enterVerificationCode(find, region=None, scale=1.0):
             asset(f"num{digit}.png"),
             confidence=0.89,
             region=region,
+            preferred_scale=_ocr_resolution_scale,
         )
         if number_pos is not None:
             pressButton(number_pos)
@@ -232,11 +249,8 @@ def acceptFriendRequest(region=None):
 def clearPrompt(region=None):
     """Clear prompts and return whether any blocker was handled."""
     handled = False
-    verification_pos, verification_scale = locate_on_screen_scaled(
-        asset("verification_code.png"),
-        confidence=0.89,
-        region=region,
-        return_scale=True,
+    verification_pos, verification_scale = _locateVerificationCodePrompt(
+        region=region
     )
     if verification_pos is not None:
         print(

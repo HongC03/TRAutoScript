@@ -22,10 +22,12 @@ if __package__ in (None, ""):
 
 import pydirectinput as key
 
+import game_supervisor
 from event_script import afk_conan
 from event_script.three_knight_coupon_workflow import (
     IntervalMatchEndStage,
     ThreeKnightCouponWorkflow,
+    ThreeKnightCouponWorkflowSettings,
 )
 
 
@@ -40,9 +42,9 @@ UP_REARM_WAIT_SECONDS = 0.2
 UP_RETRIGGER_SECONDS = 15.0  # Set to 0 to disable periodic Up refreshes.
 CANCELLATION_POLL_SECONDS = 0.05
 TOGGLE_HOTKEY = "f3"
-WORKFLOW = "coupon"  # Choose "coupon" or "farm".
-THREE_KNIGHT_COUPON_INTERVAL_SECONDS = 1800
-THREE_KNIGHT_COUPON_ON_START = True
+WORKFLOW = "farm"  # Choose "coupon" or "farm".
+THREE_KNIGHT_COUPON_INTERVAL_MINUTES = 30
+THREE_KNIGHT_COUPON_ON_START = False
 
 
 def log_key_action(action, result):
@@ -244,6 +246,22 @@ def parse_args(argv=None):
         help="Match-finished image used to count matches and trigger the selected workflow.",
     )
     parser.add_argument(
+        "--three-knight-point-image", default="three_knight_point.png",
+        help=(
+            "Three Knight point coupon image relative to scr/, or an absolute path "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--ocr-resolution",
+        choices=("auto", "1080p", "4k"),
+        default="auto",
+        help=(
+            "OCR UI scale: auto-detect, force 1x for 1080p, or force 2x for 4K "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
         "--right-hold-seconds", type=float, default=RIGHT_HOLD_SECONDS,
         help="Seconds between Right key-down and key-up (default: %(default)s).",
     )
@@ -256,12 +274,12 @@ def parse_args(argv=None):
         help="Shared run, farm, and coupon workflow statistics file.",
     )
     parser.add_argument(
-        "--three-knight-coupon-interval-seconds",
-        "--my-room-workflow-interval-seconds",
+        "--three-knight-coupon-interval-minutes",
+        "--my-room-workflow-interval-minutes",
         type=float,
-        default=THREE_KNIGHT_COUPON_INTERVAL_SECONDS,
+        default=THREE_KNIGHT_COUPON_INTERVAL_MINUTES,
         help=(
-            "Run the Three Knight coupon workflow after this many seconds, "
+            "Run the Three Knight coupon workflow after this many minutes, "
             "at the next match end; 0 disables repeats (default: %(default)s)."
         ),
     )
@@ -307,11 +325,11 @@ def parse_args(argv=None):
     if not math.isfinite(arguments.up_retrigger_seconds) or arguments.up_retrigger_seconds < 0:
         parser.error("--up-retrigger-seconds must be a finite, non-negative number")
     if (
-        not math.isfinite(arguments.three_knight_coupon_interval_seconds)
-        or arguments.three_knight_coupon_interval_seconds < 0
+        not math.isfinite(arguments.three_knight_coupon_interval_minutes)
+        or arguments.three_knight_coupon_interval_minutes < 0
     ):
         parser.error(
-            "--three-knight-coupon-interval-seconds must be a finite, non-negative number"
+            "--three-knight-coupon-interval-minutes must be a finite, non-negative number"
         )
     if arguments.three_knight_coupon_on_start and arguments.workflow != "coupon":
         parser.error("--three-knight-coupon-on-start requires --workflow coupon")
@@ -327,12 +345,13 @@ def main(argv=None):
         live_info = LiveAutomationInfo({
             "Trigger image": arguments.target_image,
             "Match-end image": arguments.match_end_image,
+            "Three Knight point image": arguments.three_knight_point_image,
             "Selected workflow": arguments.workflow,
             "Workflow interval": (
                 (
                     "Disabled"
-                    if arguments.three_knight_coupon_interval_seconds == 0
-                    else f"Every {arguments.three_knight_coupon_interval_seconds:g}s, after match end"
+                    if arguments.three_knight_coupon_interval_minutes == 0
+                    else f"Every {arguments.three_knight_coupon_interval_minutes:g}m, after match end"
                 )
                 if arguments.workflow == "coupon"
                 else f"Every {afk_conan.SCHEDULED_IMAGE_INTERVAL_SECONDS:g}s, after match end"
@@ -352,6 +371,9 @@ def main(argv=None):
 
 
 def run_automation(arguments, *, stop_event=None, live_info=None):
+    game_supervisor.set_ocr_resolution(
+        getattr(arguments, "ocr_resolution", "auto")
+    )
     if live_info is not None:
         live_info.reset()
     focus_controller = UpRightFocusController(
@@ -362,14 +384,16 @@ def run_automation(arguments, *, stop_event=None, live_info=None):
     if (
         arguments.workflow == "coupon"
         and (
-            arguments.three_knight_coupon_interval_seconds > 0
+            arguments.three_knight_coupon_interval_minutes > 0
             or arguments.three_knight_coupon_on_start
         )
         and not arguments.test_farm_workflow
     ):
         post_match_stage = IntervalMatchEndStage(
-            arguments.three_knight_coupon_interval_seconds,
-            ThreeKnightCouponWorkflow(),
+            arguments.three_knight_coupon_interval_minutes * 60,
+            ThreeKnightCouponWorkflow(ThreeKnightCouponWorkflowSettings(
+                three_knight_point_image=arguments.three_knight_point_image,
+            )),
             run_on_start=arguments.three_knight_coupon_on_start,
         )
     profile = afk_conan.TaskProfile(

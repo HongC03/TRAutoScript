@@ -51,16 +51,40 @@ def locate_on_screen(image_path, confidence=0.89, region=None):
 def locate_on_screen_scaled(
     image_path, confidence=0.89, region=None,
     scales=(0.75, 0.875, 1.125, 1.25, 1.5, 1.75, 2.0),
-    return_scale=False,
+    return_scale=False, preferred_scale=None,
 ):
     """Locate an image at original or resized dimensions.
 
     When ``return_scale`` is true, return ``(position, scale)``. A missing
     match returns ``(None, None)``.
     """
-    position = locate_on_screen(
-        image_path, confidence=confidence, region=region
-    )
+    def locate_template(template):
+        if _screen_capture is not None:
+            return _screen_capture.locate(
+                template, confidence=confidence, region=region
+            )
+        if region is None:
+            return gui.locateOnScreen(template, confidence=confidence)
+        return gui.locateOnScreen(
+            template, confidence=confidence, region=region
+        )
+
+    if preferred_scale is not None:
+        scale = float(preferred_scale)
+        if scale == 1.0:
+            position = locate_on_screen(
+                image_path, confidence=confidence, region=region
+            )
+        else:
+            with Image.open(image_path) as template:
+                resized = template.resize((
+                    max(1, round(template.width * scale)),
+                    max(1, round(template.height * scale)),
+                ), Image.Resampling.LANCZOS)
+            position = locate_template(resized)
+        return (position, scale if position is not None else None) if return_scale else position
+
+    position = locate_on_screen(image_path, confidence=confidence, region=region)
     if position is not None:
         return (position, 1.0) if return_scale else position
 
@@ -70,18 +94,7 @@ def locate_on_screen_scaled(
                 max(1, round(template.width * scale)),
                 max(1, round(template.height * scale)),
             ), Image.Resampling.LANCZOS)
-            if _screen_capture is not None:
-                position = _screen_capture.locate(
-                    resized, confidence=confidence, region=region
-                )
-            elif region is None:
-                position = gui.locateOnScreen(
-                    resized, confidence=confidence
-                )
-            else:
-                position = gui.locateOnScreen(
-                    resized, confidence=confidence, region=region
-                )
+            position = locate_template(resized)
             if position is not None:
                 return (position, scale) if return_scale else position
     return (None, None) if return_scale else None
@@ -98,6 +111,12 @@ def pressButton(button_position):
     """Click the center of a detected screen region."""
     mouse_position = gui.center(button_position)
     key.click(mouse_position[0], mouse_position[1])
+    print(
+        f"[CLICK] sent pydirectinput click at "
+        f"({mouse_position[0]}, {mouse_position[1]}); "
+        f"matched box={tuple(button_position)}",
+        flush=True,
+    )
 
 
 def autoPressButton(
