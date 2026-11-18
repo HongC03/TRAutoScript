@@ -28,7 +28,7 @@ The default task trigger is `scr/magic_map.png`, the match-end template is `scr/
 py -m event_script.afk_three_knight --target-image your_task.png
 ```
 
-Images are resolved relative to `scr/`; absolute paths are also accepted. Use `--workflow farm` to run the scheduled farm flow instead of the default coupon redemption flow. Add `--status-window` for the desktop toggle and dashboard. Run `py -m event_script.afk_three_knight --help` to see all options.
+Images are resolved relative to `scr/`; absolute paths are also accepted. Use `--workflow farm` to run the scheduled farm flow instead of the default coupon redemption flow. Press F3 globally to turn automation off or start it again; use `--toggle-hotkey` to choose another key. Run `py -m event_script.afk_three_knight --help` to see all options.
 
 To use a different Three Knight point coupon template, set `--three-knight-point-image` to a filename under `scr/` or an absolute image path:
 

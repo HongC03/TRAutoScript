@@ -305,15 +305,7 @@ def parse_args(argv=None):
     parser.add_argument("--test-farm-workflow", action="store_true")
     parser.add_argument(
         "--toggle-hotkey", default=TOGGLE_HOTKEY,
-        help="Global on/off hotkey for the toggle window (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--status-window", action="store_true",
-        help="Show the desktop status and Turn On/Turn Off window.",
-    )
-    parser.add_argument(
-        "--no-toggle-window", action="store_true",
-        help=argparse.SUPPRESS,
+        help="Global on/off hotkey (default: %(default)s).",
     )
     arguments = parser.parse_args(argv)
     if arguments.workflow == "my-room":
@@ -340,45 +332,19 @@ def parse_args(argv=None):
 
 def main(argv=None):
     arguments = parse_args(argv)
-    if arguments.status_window and not arguments.no_toggle_window and not arguments.test_farm_workflow:
-        from event_script.automation_toggle import LiveAutomationInfo, run_toggle_window
-        live_info = LiveAutomationInfo({
-            "Trigger image": arguments.target_image,
-            "Match-end image": arguments.match_end_image,
-            "Three Knight point image": arguments.three_knight_point_image,
-            "Selected workflow": arguments.workflow,
-            "Workflow interval": (
-                (
-                    "Disabled"
-                    if arguments.three_knight_coupon_interval_minutes == 0
-                    else f"Every {arguments.three_knight_coupon_interval_minutes:g}m, after match end"
-                )
-                if arguments.workflow == "coupon"
-                else f"Every {afk_conan.SCHEDULED_IMAGE_INTERVAL_SECONDS:g}s, after match end"
-            ),
-            "Run coupon workflow at startup": (
-                "Yes" if arguments.three_knight_coupon_on_start else "No"
-            ),
-            "Right timing": f"Hold {arguments.right_hold_seconds:g}s / random wait {RIGHT_INTERVAL_MIN_SECONDS:g}–{RIGHT_INTERVAL_MAX_SECONDS:g}s",
-            "Up refresh": "Disabled" if arguments.up_retrigger_seconds == 0 else f"Every {arguments.up_retrigger_seconds:g}s / release gap {UP_REARM_WAIT_SECONDS:g}s",
-        }, arguments.up_retrigger_seconds)
-        return run_toggle_window(
-            lambda stop_event: run_automation(arguments, stop_event=stop_event, live_info=live_info),
-            toggle_hotkey=arguments.toggle_hotkey,
-            live_info=live_info,
-        )
-    return run_automation(arguments)
+    from event_script.automation_toggle import run_with_toggle
+    return run_with_toggle(
+        lambda stop_event: run_automation(arguments, stop_event=stop_event),
+        toggle_hotkey=arguments.toggle_hotkey,
+    )
 
 
-def run_automation(arguments, *, stop_event=None, live_info=None):
+def run_automation(arguments, *, stop_event=None):
     game_supervisor.set_ocr_resolution(
         getattr(arguments, "ocr_resolution", "auto")
     )
-    if live_info is not None:
-        live_info.reset()
     focus_controller = UpRightFocusController(
         arguments.right_hold_seconds, arguments.up_retrigger_seconds,
-        on_key_action=None if live_info is None else live_info.record_input,
     )
     post_match_stage = None
     if (
@@ -404,20 +370,15 @@ def run_automation(arguments, *, stop_event=None, live_info=None):
         focus_game_window=focus_controller.focus_game_window,
         release_input=focus_controller.release_up,
         on_task_triggered=focus_controller.request_up_rearm,
-        on_status_ready=None if live_info is None else live_info.bind_status,
         post_match_stage=post_match_stage,
     )
     control_options = {} if stop_event is None else {"stop_event": stop_event}
-    try:
-        return afk_conan.main(
-            test_farm_workflow=arguments.test_farm_workflow,
-            farm_workflow_enabled=arguments.workflow == "farm",
-            profile=profile,
-            **control_options,
-        )
-    finally:
-        if live_info is not None:
-            live_info.finish()
+    return afk_conan.main(
+        test_farm_workflow=arguments.test_farm_workflow,
+        farm_workflow_enabled=arguments.workflow == "farm",
+        profile=profile,
+        **control_options,
+    )
 
 
 if __name__ == "__main__":
