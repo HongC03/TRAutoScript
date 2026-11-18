@@ -11,6 +11,9 @@ from event_script import afk_arrow_dance
 from event_script.automation_toggle import run_with_toggle
 
 
+TARGET_IMAGE_NAME = "mcj_dance.png"
+
+
 class DanceStop:
     """Stop on task shutdown, Telegram pause, or automation shutdown."""
 
@@ -68,7 +71,9 @@ def main(argv=None):
     from event_script.afk_three_knight import TOGGLE_HOTKEY, add_task_arguments
 
     parser = argparse.ArgumentParser(description=__doc__)
-    add_task_arguments(parser, stats_path=BASE_DIR / "mcj_stats.json")
+    add_task_arguments(
+        parser, target_image=TARGET_IMAGE_NAME, stats_path=BASE_DIR / "mcj_stats.json",
+    )
     afk_arrow_dance.add_capture_options(parser)
     parser.add_argument("--dry-run", action="store_true", help="Log dance answers without playing them.")
     parser.add_argument("--toggle-hotkey", default=TOGGLE_HOTKEY,

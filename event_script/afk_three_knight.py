@@ -190,10 +190,10 @@ class UpXFocusController:
                 self.release_up()
 
 
-def add_task_arguments(parser, *, stats_path, stats_flags=("--stats-path",)):
+def add_task_arguments(parser, *, target_image, stats_path, stats_flags=("--stats-path",)):
     parser.add_argument(
-        "--target-image", default=TARGET_IMAGE_NAME,
-        help="Trigger image relative to scr/, or an absolute path (required for normal runs).",
+        "--target-image", default=target_image,
+        help="Trigger image relative to scr/, or an absolute path (default: %(default)s).",
     )
     parser.add_argument(
         "--match-end-image", default=MATCH_END_IMAGE_NAME,
@@ -219,7 +219,7 @@ def parse_args(argv=None):
         description="Run the task/farm flow with Up held and timed X holds."
     )
     add_task_arguments(
-        parser, stats_path=STATS_PATH,
+        parser, target_image=TARGET_IMAGE_NAME, stats_path=STATS_PATH,
         stats_flags=("--stats-path", "--coupon-stats-path"),
     )
     parser.add_argument(

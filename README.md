@@ -50,7 +50,7 @@ MCJ uses the Three Knight task trigger, game supervision, match tracking, and F3
 python -m event_script.afk_mcj --debug
 ```
 
-Set `--target-image` if MCJ needs a different task trigger. Use `--dry-run --debug` to inspect the detected poses and answer queue without sending arrows. The shared task flow still runs in this mode. See **Arrow Dance** below to test the detector against a recording. MCJ stores its statistics in `mcj_stats.json` by default.
+MCJ looks for the “和MCJ一起跳舞！” card using `scr/mcj_dance.png`. Use `--target-image` to override it. Use `--dry-run --debug` to inspect the detected poses without sending arrows. The shared task flow still runs in this mode. See **Arrow Dance** below to test the detector against a recording. MCJ stores its statistics in `mcj_stats.json` by default.
 
 ## Arrow Dance
 
@@ -60,9 +60,9 @@ Preview the detector on a recording:
 python -m event_script.afk_arrow_dance --video "C:\path\to\recording.mp4" --debug
 ```
 
-The preview shows the timer and instructor regions, current pose, and queued arrows. Press **Space** to pause or resume, **N** to step while paused, and **Q** to quit. Omit `--debug` to scan the recording as fast as possible and print the sequences.
+The detector automatically recognizes the orange, blue, and pink instructors. The preview shows the timer and instructor regions, detected character and pose, and arrows recognized in the current round. Press **Space** to pause or resume, **N** to step while paused, and **Q** to quit. Omit `--debug` to scan the recording as fast as possible and print the recognition times.
 
-For live play, launch the command below and focus Tales Runner before the next round. The script waits for the instructor to return to idle before sending the queued arrow taps. Press **F8** to stop.
+For live play, launch the command below and focus Tales Runner before the next round. The script taps the matching arrow as soon as it recognizes each new pose. If the active round has no recognized pose after 0.85 seconds, it taps one random arrow and marks it as a guess. Press **F8** to stop.
 
 ```powershell
 python -m event_script.afk_arrow_dance --play --debug

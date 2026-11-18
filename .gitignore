@@ -6,3 +6,11 @@ __pycache__/
 autoPWD.txt
 three_knight_coupon_stats.json
 mcj_stats.json
+
+# Local lesson materials
+/MISSION.md
+/RESOURCES.md
+/lessons/
+/reference/
+/assets/lesson.css
+/assets/threshold-lab.js
