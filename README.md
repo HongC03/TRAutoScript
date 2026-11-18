@@ -42,17 +42,30 @@ The game must be open and the Windows desktop session unlocked. `game_supervisor
 
 Run, farm, and coupon workflow statistics are stored together in `three_knight_coupon_stats.json`. The `last_coupon_workflow_completed_at` field records the last successful coupon workflow; use `--stats-path` to change the file location. Farm click positions are in `farm_click_positions.json` and can be adjusted for your game window layout.
 
-## MCJ Macro Studio
+## MCJ dance automation
 
-Run this from the project root with the virtual environment active:
+MCJ uses the Three Knight task trigger, game supervision, match tracking, and F3 toggle. It reads the instructor's dance moves and sends the matching arrow keys. Farm and coupon runs are disabled.
 
 ```powershell
-python -m event_script.afk_mcj --target-image your_task.png
+python -m event_script.afk_mcj --debug
 ```
 
-1. Click **Record**, switch to the game during the three-second countdown, then perform the key sequence. Press and release **F8** to finish.
-2. Inspect the key down/up timeline. Use **Dry run** to check the replay timing in the debug log without sending keys.
-3. Use **Replay in game** and switch to Tales Runner during the countdown to try the sequence once. Live replay stops if Tales Runner loses focus.
-4. Click **Arm automation** to run the shared AFK workflow. It plays the macro once on the first successful task action, then waits for an unsuccessful check before it can fire again. Press **F8** or click **Stop** to cancel.
+Set `--target-image` if MCJ needs a different task trigger. Use `--dry-run --debug` to inspect the detected poses and answer queue without sending arrows. The shared task flow still runs in this mode. See **Arrow Dance** below to test the detector against a recording. MCJ stores its statistics in `mcj_stats.json` by default.
 
-Use **Save** and **Open** to reuse a recording, or pass `--macro path\to\recording.json` at launch. The recorder captures supported keyboard keys, including arrows, and lists skipped keys in the debug log. MCJ uses the same workflow options as Three Knight and stores its statistics in `mcj_stats.json` by default.
+## Arrow Dance
+
+Preview the detector on a recording:
+
+```powershell
+python -m event_script.afk_arrow_dance --video "C:\path\to\recording.mp4" --debug
+```
+
+The preview shows the timer and instructor regions, current pose, and queued arrows. Press **Space** to pause or resume, **N** to step while paused, and **Q** to quit. Omit `--debug` to scan the recording as fast as possible and print the sequences.
+
+For live play, launch the command below and focus Tales Runner before the next round. The script waits for the instructor to return to idle before sending the queued arrow taps. Press **F8** to stop.
+
+```powershell
+python -m event_script.afk_arrow_dance --play --debug
+```
+
+Omit `--play` to test live detection without sending keys. The detector is calibrated to the recording's framing. If the debug boxes are misaligned, use `--crop X Y WIDTH HEIGHT` in source pixels to trim the captured window or video to match the recording. Consecutive identical poses require a visible break so the script can count them separately.

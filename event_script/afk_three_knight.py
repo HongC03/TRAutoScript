@@ -190,28 +190,14 @@ class UpXFocusController:
                 self.release_up()
 
 
-def parse_args(argv=None, *, macro_mode=False):
-    parser = argparse.ArgumentParser(
-        description=(
-            "Record and replay keyboard macros in the shared task/farm flow."
-            if macro_mode else
-            "Run the task/farm flow with Up held and timed X holds."
-        )
-    )
+def add_task_arguments(parser, *, stats_path, stats_flags=("--stats-path",)):
     parser.add_argument(
         "--target-image", default=TARGET_IMAGE_NAME,
         help="Trigger image relative to scr/, or an absolute path (required for normal runs).",
     )
     parser.add_argument(
         "--match-end-image", default=MATCH_END_IMAGE_NAME,
-        help="Match-finished image used to count matches and trigger the selected workflow.",
-    )
-    parser.add_argument(
-        "--three-knight-point-image", default="three_knight_point.png",
-        help=(
-            "Three Knight point coupon image relative to scr/, or an absolute path "
-            "(default: %(default)s)."
-        ),
+        help="Match-finished image used to count completed matches.",
     )
     parser.add_argument(
         "--ocr-resolution",
@@ -222,17 +208,30 @@ def parse_args(argv=None, *, macro_mode=False):
             "(default: %(default)s)."
         ),
     )
-    if macro_mode:
-        parser.add_argument("--macro", type=Path, help="Load a saved macro into the UI.")
-    else:
-        parser.add_argument(
-            "--up-retrigger-seconds", type=float, default=UP_RETRIGGER_SECONDS,
-            help="Refresh the Up hold every N seconds; 0 disables it (default: %(default)s).",
-        )
     parser.add_argument(
-        "--stats-path", "--coupon-stats-path", type=Path,
-        default=afk_conan.BASE_DIR / "mcj_stats.json" if macro_mode else STATS_PATH,
-        help="Shared run, farm, and coupon workflow statistics file.",
+        *stats_flags, type=Path, default=stats_path,
+        help="Statistics file for the run.",
+    )
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Run the task/farm flow with Up held and timed X holds."
+    )
+    add_task_arguments(
+        parser, stats_path=STATS_PATH,
+        stats_flags=("--stats-path", "--coupon-stats-path"),
+    )
+    parser.add_argument(
+        "--three-knight-point-image", default="three_knight_point.png",
+        help=(
+            "Three Knight point coupon image relative to scr/, or an absolute path "
+            "(default: %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--up-retrigger-seconds", type=float, default=UP_RETRIGGER_SECONDS,
+        help="Refresh the Up hold every N seconds; 0 disables it (default: %(default)s).",
     )
     parser.add_argument(
         "--three-knight-coupon-interval-minutes",
@@ -264,19 +263,17 @@ def parse_args(argv=None, *, macro_mode=False):
     )
     parser.set_defaults(three_knight_coupon_on_start=THREE_KNIGHT_COUPON_ON_START)
     parser.add_argument("--test-farm-workflow", action="store_true")
-    if not macro_mode:
-        parser.add_argument(
-            "--toggle-hotkey", default=TOGGLE_HOTKEY,
-            help="Global on/off hotkey (default: %(default)s).",
-        )
+    parser.add_argument(
+        "--toggle-hotkey", default=TOGGLE_HOTKEY,
+        help="Global on/off hotkey (default: %(default)s).",
+    )
     arguments = parser.parse_args(argv)
     if arguments.workflow == "my-room":
         arguments.workflow = "coupon"
-    if not macro_mode:
-        if not arguments.toggle_hotkey.strip():
-            parser.error("--toggle-hotkey must not be empty")
-        if not math.isfinite(arguments.up_retrigger_seconds) or arguments.up_retrigger_seconds < 0:
-            parser.error("--up-retrigger-seconds must be a finite, non-negative number")
+    if not arguments.toggle_hotkey.strip():
+        parser.error("--toggle-hotkey must not be empty")
+    if not math.isfinite(arguments.up_retrigger_seconds) or arguments.up_retrigger_seconds < 0:
+        parser.error("--up-retrigger-seconds must be a finite, non-negative number")
     if (
         not math.isfinite(arguments.three_knight_coupon_interval_minutes)
         or arguments.three_knight_coupon_interval_minutes < 0
@@ -312,16 +309,18 @@ def run_automation(arguments, *, stop_event=None):
     )
 
 
-def run_task_flow(arguments, *, stop_event=None, **profile_options):
+def run_task_flow(arguments, *, stop_event=None, workflows_enabled=True, **profile_options):
     game_supervisor.set_ocr_resolution(getattr(arguments, "ocr_resolution", "auto"))
+    workflow = arguments.workflow if workflows_enabled else None
+    test_farm_workflow = workflows_enabled and arguments.test_farm_workflow
     post_match_stage = None
     if (
-        arguments.workflow == "coupon"
+        workflow == "coupon"
         and (
             arguments.three_knight_coupon_interval_minutes > 0
             or arguments.three_knight_coupon_on_start
         )
-        and not arguments.test_farm_workflow
+        and not test_farm_workflow
     ):
         post_match_stage = IntervalMatchEndStage(
             arguments.three_knight_coupon_interval_minutes * 60,
@@ -339,8 +338,8 @@ def run_task_flow(arguments, *, stop_event=None, **profile_options):
     )
     control_options = {} if stop_event is None else {"stop_event": stop_event}
     return afk_conan.main(
-        test_farm_workflow=arguments.test_farm_workflow,
-        farm_workflow_enabled=arguments.workflow == "farm",
+        test_farm_workflow=test_farm_workflow,
+        farm_workflow_enabled=workflow == "farm",
         profile=profile,
         **control_options,
     )

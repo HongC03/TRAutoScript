@@ -126,8 +126,6 @@ class TaskProfile:
     on_task_triggered: Callable | None = None
     on_status_ready: Callable | None = None
     post_match_stage: object | None = None
-    automatic_shift: bool = True
-    on_task_result: Callable | None = None
 
 # Telegram and alarm settings.
 TELEGRAM_POLL_TIMEOUT = 5  # Telegram long-poll timeout in seconds.
@@ -1640,13 +1638,10 @@ def _main(
                         pending=farm_workflow_pending,
                     )
 
-                    if custom_input_worker is None:
-                        input_enabled = (
-                            (profile is None or profile.automatic_shift)
-                            and automatic_shift_press_enabled()
-                        )
-                    else:
-                        input_enabled = not switch_windows
+                    input_enabled = (
+                        automatic_shift_press_enabled()
+                        if custom_input_worker is None else not switch_windows
+                    )
                     if input_enabled and (
                         shift_press_thread is None or not shift_press_thread.is_alive()
                     ):
@@ -1671,9 +1666,7 @@ def _main(
                             )
                         shift_press_thread.start()
                     status.set_stage(ConanStage.WAITING_FOR_MATCH)
-                    triggered = run_task_step(**profile_options)
-                    if profile is not None and profile.on_task_result is not None:
-                        profile.on_task_result(triggered, pause_event, stop_event)
+                    run_task_step(**profile_options)
                     (
                         conan_end_image_visible,
                         conan_match_finished,
