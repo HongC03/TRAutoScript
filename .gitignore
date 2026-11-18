@@ -5,3 +5,4 @@ __pycache__/
 .env
 autoPWD.txt
 three_knight_coupon_stats.json
+mcj_stats.json

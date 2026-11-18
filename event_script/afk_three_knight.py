@@ -1,4 +1,4 @@
-"""Run the Conan-style task/farm flow with Up held and random Right presses.
+"""Run the task/farm flow with Up held and timed X holds.
 
 Usage from the repository root:
     python -m event_script.afk_three_knight --target-image your_task.png
@@ -9,7 +9,6 @@ Images are relative to scr/, or can be absolute paths. Telegram uses the same
 
 import argparse
 import math
-import random
 import sys
 import threading
 import time
@@ -32,12 +31,11 @@ from event_script.three_knight_coupon_workflow import (
 
 
 # Set this to your image name if you prefer running without command-line flags.
-TARGET_IMAGE_NAME = "magic_map.png"
+TARGET_IMAGE_NAME = "mcr30.png"
 MATCH_END_IMAGE_NAME = "conan_end.png"
 STATS_PATH = afk_conan.BASE_DIR / "three_knight_coupon_stats.json"
-RIGHT_INTERVAL_MIN_SECONDS = 0.0
-RIGHT_INTERVAL_MAX_SECONDS = 2.0
-RIGHT_HOLD_SECONDS = 0.2
+X_HOLD_SECONDS = 2.0
+X_RELEASE_GAP_SECONDS = 4.0
 UP_REARM_WAIT_SECONDS = 0.2
 UP_RETRIGGER_SECONDS = 15.0  # Set to 0 to disable periodic Up refreshes.
 CANCELLATION_POLL_SECONDS = 0.05
@@ -54,18 +52,15 @@ def log_key_action(action, result):
     print(f"[{timestamp} HKT] [INPUT] {action}; result={outcome}", flush=True)
 
 
-class UpRightFocusController:
-    """Manage worker-owned arrow input and the separate game focus callback."""
+class UpXFocusController:
+    """Manage the input worker and the separate game focus callback."""
 
-    def __init__(self, right_hold_seconds=None, up_retrigger_seconds=None, on_key_action=None):
+    def __init__(self, up_retrigger_seconds=None, on_key_action=None):
         self._lock = threading.Lock()
         self._up_held = False
         self._rearm_requested = False
         self._next_up_rearm_at = None
         self.on_key_action = on_key_action
-        self.right_hold_seconds = (
-            RIGHT_HOLD_SECONDS if right_hold_seconds is None else right_hold_seconds
-        )
         self.up_retrigger_seconds = (
             UP_RETRIGGER_SECONDS if up_retrigger_seconds is None else up_retrigger_seconds
         )
@@ -141,101 +136,67 @@ class UpRightFocusController:
             return True
 
     def run_input(self, input_stop_event, pause_event, stop_event):
-        hold_up_and_press_right(
-            input_stop_event, pause_event, stop_event, focus_controller=self,
-            right_hold_seconds=self.right_hold_seconds,
-        )
+        """Hold Up and cycle X until the worker is paused or stopped."""
+        def cancelled():
+            return input_stop_event.is_set() or pause_event.is_set() or stop_event.is_set()
 
+        x_held = False
+        next_x_at = time.monotonic()
 
-def hold_up_and_press_right(
-    input_stop_event, pause_event, stop_event, *, focus_controller=None,
-    right_hold_seconds=None,
-):
-    """Hold Up and wait a fresh uniform 0–2 seconds before every Right hold.
-
-    Right's key-down/key-up gap is configurable. Interrupt both waits when any
-    event is set, including Telegram pause/stop. Key
-    release also runs if input or random-number generation raises an error.
-    The input worker starts Up directly; focus does not gate Up refreshes.
-    """
-    def cancelled():
-        return (
-            input_stop_event.is_set()
-            or pause_event.is_set()
-            or stop_event.is_set()
-        )
-
-    input_ready = True
-
-    def log_input(action, result):
-        if focus_controller is None:
-            log_key_action(action, result)
-        else:
-            focus_controller.log_input(action, result)
-
-    def refresh_up():
-        nonlocal input_ready
-        if focus_controller is not None:
-            input_ready = focus_controller.rearm_up_if_requested(
-                lambda gap: wait_for(gap, refresh_up_hold=False), cancelled,
-            )
-        return input_ready
-
-    def wait_for(seconds, *, refresh_up_hold=True):
-        deadline = time.monotonic() + seconds
-        while not cancelled():
-            if refresh_up_hold and not refresh_up():
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            input_stop_event.wait(min(CANCELLATION_POLL_SECONDS, remaining))
-
-    if right_hold_seconds is None:
-        right_hold_seconds = RIGHT_HOLD_SECONDS
-    if cancelled():
-        if focus_controller is not None:
-            focus_controller.release_up()
-        return
-    right_held = False
-    try:
-        if focus_controller is None:
-            result = key.keyDown("up")
-            log_key_action("Up DOWN (hold)", result)
-        elif not focus_controller.start_up():
-            return
-        while not cancelled() and input_ready:
-            delay = random.uniform(
-                RIGHT_INTERVAL_MIN_SECONDS, RIGHT_INTERVAL_MAX_SECONDS,
-            )
-            wait_for(delay)
-            if cancelled() or not input_ready:
-                break
-            right_held = True
-            result = key.keyDown("right", _pause=False)
-            log_input(
-                f"Right DOWN (random wait: {delay:.3f}s; hold: {right_hold_seconds:.3f}s)", result,
-            )
-            wait_for(right_hold_seconds)
-            result = key.keyUp("right", _pause=False)
-            right_held = False
-            log_input("Right UP (end hold)", result)
-    finally:
-        try:
-            if right_held:
-                result = key.keyUp("right", _pause=False)
-                log_input("Right UP (cleanup)", result)
-        finally:
-            if focus_controller is None:
-                result = key.keyUp("up")
-                log_key_action("Up UP (release hold)", result)
+        def update_x():
+            nonlocal x_held, next_x_at
+            if time.monotonic() < next_x_at:
+                return
+            if x_held:
+                result = key.keyUp("x", _pause=False)
+                if result is not False:
+                    x_held = False
+                next_x_at = time.monotonic() + X_RELEASE_GAP_SECONDS
+                self.log_input("X UP (end hold)", result)
             else:
-                focus_controller.release_up()
+                x_held = True
+                result = key.keyDown("x", _pause=False)
+                next_x_at = time.monotonic() + X_HOLD_SECONDS
+                self.log_input("X DOWN (timed hold)", result)
+            if result is False:
+                raise RuntimeError("Windows rejected X input")
+
+        def wait_for(seconds):
+            deadline = time.monotonic() + seconds
+            while not cancelled():
+                update_x()
+                now = time.monotonic()
+                if now >= deadline:
+                    return
+                sleep_for = min(CANCELLATION_POLL_SECONDS, deadline - now, next_x_at - now)
+                if sleep_for > 0:
+                    input_stop_event.wait(sleep_for)
+
+        try:
+            if cancelled() or not self.start_up():
+                return
+            while not cancelled() and self.rearm_up_if_requested(wait_for, cancelled):
+                wait_for(CANCELLATION_POLL_SECONDS)
+        finally:
+            try:
+                if x_held:
+                    try:
+                        result = key.keyUp("x", _pause=False)
+                    except key.FailSafeException:
+                        # Release an owned key even when the mouse fail-safe stops the loop.
+                        result = key.keyUp.__wrapped__("x", _pause=False)
+                    self.log_input("X UP (cleanup)", result)
+            finally:
+                self.release_up()
 
 
-def parse_args(argv=None):
+def parse_args(argv=None, *, macro_mode=False):
     parser = argparse.ArgumentParser(
-        description="Run the shared task/farm flow while holding Up and briefly holding Right."
+        description=(
+            "Record and replay keyboard macros in the shared task/farm flow."
+            if macro_mode else
+            "Run the task/farm flow with Up held and timed X holds."
+        )
     )
     parser.add_argument(
         "--target-image", default=TARGET_IMAGE_NAME,
@@ -261,16 +222,16 @@ def parse_args(argv=None):
             "(default: %(default)s)."
         ),
     )
+    if macro_mode:
+        parser.add_argument("--macro", type=Path, help="Load a saved macro into the UI.")
+    else:
+        parser.add_argument(
+            "--up-retrigger-seconds", type=float, default=UP_RETRIGGER_SECONDS,
+            help="Refresh the Up hold every N seconds; 0 disables it (default: %(default)s).",
+        )
     parser.add_argument(
-        "--right-hold-seconds", type=float, default=RIGHT_HOLD_SECONDS,
-        help="Seconds between Right key-down and key-up (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--up-retrigger-seconds", type=float, default=UP_RETRIGGER_SECONDS,
-        help="Refresh the Up hold every N seconds; 0 disables it (default: %(default)s).",
-    )
-    parser.add_argument(
-        "--stats-path", "--coupon-stats-path", type=Path, default=STATS_PATH,
+        "--stats-path", "--coupon-stats-path", type=Path,
+        default=afk_conan.BASE_DIR / "mcj_stats.json" if macro_mode else STATS_PATH,
         help="Shared run, farm, and coupon workflow statistics file.",
     )
     parser.add_argument(
@@ -303,19 +264,19 @@ def parse_args(argv=None):
     )
     parser.set_defaults(three_knight_coupon_on_start=THREE_KNIGHT_COUPON_ON_START)
     parser.add_argument("--test-farm-workflow", action="store_true")
-    parser.add_argument(
-        "--toggle-hotkey", default=TOGGLE_HOTKEY,
-        help="Global on/off hotkey (default: %(default)s).",
-    )
+    if not macro_mode:
+        parser.add_argument(
+            "--toggle-hotkey", default=TOGGLE_HOTKEY,
+            help="Global on/off hotkey (default: %(default)s).",
+        )
     arguments = parser.parse_args(argv)
     if arguments.workflow == "my-room":
         arguments.workflow = "coupon"
-    if not arguments.toggle_hotkey.strip():
-        parser.error("--toggle-hotkey must not be empty")
-    if not math.isfinite(arguments.right_hold_seconds) or arguments.right_hold_seconds < 0:
-        parser.error("--right-hold-seconds must be a finite, non-negative number")
-    if not math.isfinite(arguments.up_retrigger_seconds) or arguments.up_retrigger_seconds < 0:
-        parser.error("--up-retrigger-seconds must be a finite, non-negative number")
+    if not macro_mode:
+        if not arguments.toggle_hotkey.strip():
+            parser.error("--toggle-hotkey must not be empty")
+        if not math.isfinite(arguments.up_retrigger_seconds) or arguments.up_retrigger_seconds < 0:
+            parser.error("--up-retrigger-seconds must be a finite, non-negative number")
     if (
         not math.isfinite(arguments.three_knight_coupon_interval_minutes)
         or arguments.three_knight_coupon_interval_minutes < 0
@@ -326,7 +287,7 @@ def parse_args(argv=None):
     if arguments.three_knight_coupon_on_start and arguments.workflow != "coupon":
         parser.error("--three-knight-coupon-on-start requires --workflow coupon")
     if not arguments.test_farm_workflow and not arguments.target_image:
-        parser.error("set --target-image or TARGET_IMAGE_NAME in afk_three_knight.py")
+        parser.error("set --target-image")
     return arguments
 
 
@@ -340,12 +301,19 @@ def main(argv=None):
 
 
 def run_automation(arguments, *, stop_event=None):
-    game_supervisor.set_ocr_resolution(
-        getattr(arguments, "ocr_resolution", "auto")
+    focus_controller = UpXFocusController(arguments.up_retrigger_seconds)
+    return run_task_flow(
+        arguments,
+        stop_event=stop_event,
+        input_worker=focus_controller.run_input,
+        focus_game_window=focus_controller.focus_game_window,
+        release_input=focus_controller.release_up,
+        on_task_triggered=focus_controller.request_up_rearm,
     )
-    focus_controller = UpRightFocusController(
-        arguments.right_hold_seconds, arguments.up_retrigger_seconds,
-    )
+
+
+def run_task_flow(arguments, *, stop_event=None, **profile_options):
+    game_supervisor.set_ocr_resolution(getattr(arguments, "ocr_resolution", "auto"))
     post_match_stage = None
     if (
         arguments.workflow == "coupon"
@@ -366,11 +334,8 @@ def run_automation(arguments, *, stop_event=None):
         target_image_name=arguments.target_image or "unused-in-farm-only-mode.png",
         match_end_image_name=arguments.match_end_image,
         stats_path=arguments.stats_path,
-        input_worker=focus_controller.run_input,
-        focus_game_window=focus_controller.focus_game_window,
-        release_input=focus_controller.release_up,
-        on_task_triggered=focus_controller.request_up_rearm,
         post_match_stage=post_match_stage,
+        **profile_options,
     )
     control_options = {} if stop_event is None else {"stop_event": stop_event}
     return afk_conan.main(

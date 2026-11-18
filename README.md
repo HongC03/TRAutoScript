@@ -1,6 +1,6 @@
 # TRAutoScript
 
-Standalone Tales Runner automation project extracted from TRAuto. It contains the Up/Right AFK automation (`afk_three_knight`), its shared task and Telegram engine, game supervision, Three Knight coupon and farm workflows, and the image templates those flows use.
+Standalone Tales Runner automation project extracted from TRAuto. It contains the Up and X AFK automation (`afk_three_knight`), its shared task and Telegram engine, game supervision, Three Knight coupon and farm workflows, and the image templates those flows use.
 
 ## Setup
 
@@ -41,3 +41,18 @@ Set the repeat interval in minutes with `--three-knight-coupon-interval-minutes`
 The game must be open and the Windows desktop session unlocked. `game_supervisor.py` can also launch/restart Tales Runner when configured with credentials in a local `autoPWD.txt` containing `account=...` and `password=...`; keep that file private. The launcher shortcut is expected at `C:\Users\Public\Desktop\TalesRunner.lnk`.
 
 Run, farm, and coupon workflow statistics are stored together in `three_knight_coupon_stats.json`. The `last_coupon_workflow_completed_at` field records the last successful coupon workflow; use `--stats-path` to change the file location. Farm click positions are in `farm_click_positions.json` and can be adjusted for your game window layout.
+
+## MCJ Macro Studio
+
+Run this from the project root with the virtual environment active:
+
+```powershell
+python -m event_script.afk_mcj --target-image your_task.png
+```
+
+1. Click **Record**, switch to the game during the three-second countdown, then perform the key sequence. Press and release **F8** to finish.
+2. Inspect the key down/up timeline. Use **Dry run** to check the replay timing in the debug log without sending keys.
+3. Use **Replay in game** and switch to Tales Runner during the countdown to try the sequence once. Live replay stops if Tales Runner loses focus.
+4. Click **Arm automation** to run the shared AFK workflow. It plays the macro once on the first successful task action, then waits for an unsuccessful check before it can fire again. Press **F8** or click **Stop** to cancel.
+
+Use **Save** and **Open** to reuse a recording, or pass `--macro path\to\recording.json` at launch. The recorder captures supported keyboard keys, including arrows, and lists skipped keys in the debug log. MCJ uses the same workflow options as Three Knight and stores its statistics in `mcj_stats.json` by default.
