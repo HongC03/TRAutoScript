@@ -27,7 +27,7 @@ DEFAULT_FARM_WORKFLOW_CONFIG = FarmWorkflowConfig(
     crops_failure_confirmation_image="okButton.png",
     cross_image_names=("farm_cross.png", "cross.png"),
     field_image_names=(
-        "farm/farm_shop.png", "farm/field.png", "farm/target_field.png",
+        "farm/farm_shop.png", "farm/field.png", "farm/target_field2.png",
     ),
     purchase_image_names=(
         "farm/farm_cart.png", "buy.png", "farm/farm_cart_yes_button.png",

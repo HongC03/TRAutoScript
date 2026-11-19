@@ -1,4 +1,4 @@
-"""Record the Tales Runner client area for one automation session."""
+"""Capture the Tales Runner window and optionally record it to an MP4."""
 
 import ctypes
 import threading
@@ -61,8 +61,8 @@ def client_crop(window, width, height):
 
 
 @contextmanager
-def window_source(window):
-    frames = deque(maxlen=4)
+def window_source(window, *, client_area=True, buffer_size=4):
+    frames = deque(maxlen=buffer_size)
     closed = threading.Event()
     latest = None
     dimensions = None
@@ -71,7 +71,7 @@ def window_source(window):
     def on_frame_arrived(frame, _control):
         nonlocal dimensions, crop
         size = (frame.width, frame.height)
-        if size != dimensions:
+        if client_area and size != dimensions:
             crop = client_crop(window, *size)
             dimensions = size
         # The native frame buffer is only valid during this callback.
@@ -98,7 +98,8 @@ def window_source(window):
         controller = capture.start_free_threaded()
     except Exception as error:
         print(f"* Windows Graphics Capture unavailable; using slower foreground capture: {error} *", flush=True)
-        yield lambda: capture_frame(window)
+        grab = capture_frame if client_area else capture_desktop_window
+        yield lambda: grab(window)
         return
 
     try:
@@ -106,6 +107,13 @@ def window_source(window):
     finally:
         if not controller.is_finished():
             controller.stop()
+
+
+def capture_desktop_window(window):
+    image = ImageGrab.grab(
+        bbox=(window.left, window.top, window.right, window.bottom), all_screens=True,
+    )
+    return cv2.cvtColor(np.asarray(image), cv2.COLOR_RGB2BGR)
 
 
 @contextmanager

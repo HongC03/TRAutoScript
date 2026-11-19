@@ -6,6 +6,7 @@ import random
 import threading
 import time
 from collections import deque
+from contextlib import ExitStack
 from dataclasses import dataclass
 from textwrap import wrap
 
@@ -28,6 +29,7 @@ TAP_SECONDS = 0.035
 DEBUG_WINDOW = "Arrow Dance Debug"
 DEBUG_PANEL_WIDTH = 560
 DEBUG_WINDOW_SIZE = (1720, 921)
+DEBUG_REFRESH_SECONDS = 0.05
 ROUND_TIMER_THRESHOLD = 400
 
 # Color coverage for each pose, measured on a 3-row by 5-column grid.
@@ -383,6 +385,9 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
     if own_stop:
         stop = threading.Event()
     capture = None
+    live_source = ExitStack()
+    get_live_frame = None
+    last_live_frame = None
     remove_hotkey = None
     window_handle = None
     start = time.monotonic()
@@ -391,6 +396,7 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
     previous = None
     paused = False
     debug_open = False
+    last_debug_at = None
     recent_log = deque(maxlen=24)
     frame_times = deque(maxlen=12)
     last_tap = None
@@ -409,9 +415,8 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
             if not capture.isOpened() or fps <= 0:
                 raise ValueError(f"Could not open video: {video}")
         else:
-            from PIL import ImageGrab
-
             from event_script import afk_conan
+            from event_script.window_recording import capture_desktop_window, window_source
             if own_stop:
                 from event_script.automation_toggle import register_toggle_hotkey
 
@@ -430,9 +435,11 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                 window = afk_conan.get_active_window()
                 if not afk_conan.is_game_window(window):
                     if window_handle is not None:
+                        live_source.close()
                         reader = RoundReader()
                         previous = None
                         window_handle = None
+                        last_live_frame = None
                         frame_times.clear()
                         now = time.monotonic() - start
                         report(f"{now:6.2f}s  Waiting for Tales Runner to regain focus.")
@@ -450,11 +457,22 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                     reader = RoundReader()
                     previous = None
                     window_handle = window._hWnd
-                frame = cv2.cvtColor(
-                    np.asarray(ImageGrab.grab(bbox=(window.left, window.top, window.right, window.bottom),
-                                              all_screens=True)),
-                    cv2.COLOR_RGB2BGR,
-                )
+                    last_live_frame = None
+                    frame_times.clear()
+                    live_source.close()
+                    if crop is None:
+                        get_live_frame = live_source.enter_context(
+                            window_source(window, client_area=False, buffer_size=1),
+                        )
+                # Explicit crops use the original desktop-window coordinates.
+                frame = get_live_frame() if crop is None else capture_desktop_window(window)
+                if frame is None or frame is last_live_frame:
+                    if debug_open and debug_key(1) in (ord("q"), 27):
+                        stop.set()
+                        break
+                    stop.wait(0.002)
+                    continue
+                last_live_frame = frame
                 now = time.monotonic() - start
 
             frame = normalized_frame(frame, crop)
@@ -476,25 +494,26 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                 report(f"{now:6.2f}s  {reader.state}: {' '.join(reader.sequence)}")
                 previous = snapshot
             if debug:
-                if not debug_open:
-                    cv2.namedWindow(DEBUG_WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
-                    debug_open = True
-                    cv2.resizeWindow(DEBUG_WINDOW, *DEBUG_WINDOW_SIZE)
                 if capture is None:
                     frame_times.append(now)
                     elapsed = frame_times[-1] - frame_times[0]
                     display_fps = (len(frame_times) - 1) / elapsed if elapsed else None
                 else:
                     display_fps = fps
-                debug_frame(
-                    frame, observation, reader, now, mode=mode, controls=controls,
-                    fps=display_fps, log=recent_log, last_tap=last_tap,
-                )
+                if not debug_open:
+                    cv2.namedWindow(DEBUG_WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+                    debug_open = True
+                    cv2.resizeWindow(DEBUG_WINDOW, *DEBUG_WINDOW_SIZE)
+                if capture is not None or last_debug_at is None or now - last_debug_at >= DEBUG_REFRESH_SECONDS:
+                    debug_frame(
+                        frame, observation, reader, now, mode=mode, controls=controls,
+                        fps=display_fps, log=recent_log, last_tap=last_tap,
+                    )
+                    last_debug_at = now
             if capture is None:
                 if debug_open and debug_key(1) in (ord("q"), 27):
                     stop.set()
                     break
-                stop.wait(0.01)
             elif debug:
                 delay = max(1, int(1000 * (1 / fps - (time.monotonic() - frame_started))))
                 while True:
@@ -507,6 +526,7 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                     if not paused or pressed == ord("n"):
                         break
     finally:
+        live_source.close()
         if capture is not None:
             capture.release()
         if remove_hotkey is not None:
