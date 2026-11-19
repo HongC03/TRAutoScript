@@ -44,11 +44,13 @@ Run, farm, and coupon workflow statistics are stored together in `three_knight_c
 
 ## MCJ dance automation
 
-MCJ uses the Three Knight task trigger, game supervision, match tracking, and F3 toggle. It reads the instructor's dance moves and sends the matching arrow keys. Farm and coupon runs are disabled.
+MCJ uses the Three Knight task trigger, game supervision, match tracking, and F3 toggle. It reads the instructor's dance moves and sends the matching arrow keys.
 
 ```powershell
 python -m event_script.afk_mcj --debug
 ```
+
+Use `--workflow farm` to enable scheduled farm runs or `--workflow coupon` to schedule coupon redemption at match end. The default, `--workflow off`, runs MCJ with scheduled workflows disabled.
 
 MCJ looks for the “和MCJ一起跳舞！” card using `scr/mcj_dance.png`. Use `--target-image` to override it. Use `--dry-run --debug` to inspect the detected poses without sending arrows. The shared task flow still runs in this mode. See **Arrow Dance** below to test the detector against a recording. MCJ stores its statistics in `mcj_stats.json` by default.
 

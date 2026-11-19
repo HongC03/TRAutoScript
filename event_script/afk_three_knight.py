@@ -41,6 +41,7 @@ UP_RETRIGGER_SECONDS = 15.0  # Set to 0 to disable periodic Up refreshes.
 CANCELLATION_POLL_SECONDS = 0.05
 TOGGLE_HOTKEY = "f3"
 WORKFLOW = "farm"  # Choose "coupon" or "farm".
+THREE_KNIGHT_POINT_IMAGE = "three_knight_point.png"
 THREE_KNIGHT_COUPON_INTERVAL_MINUTES = 30
 THREE_KNIGHT_COUPON_ON_START = False
 
@@ -223,7 +224,7 @@ def parse_args(argv=None):
         stats_flags=("--stats-path", "--coupon-stats-path"),
     )
     parser.add_argument(
-        "--three-knight-point-image", default="three_knight_point.png",
+        "--three-knight-point-image", default=THREE_KNIGHT_POINT_IMAGE,
         help=(
             "Three Knight point coupon image relative to scr/, or an absolute path "
             "(default: %(default)s)."
@@ -302,6 +303,10 @@ def run_automation(arguments, *, stop_event=None):
     return run_task_flow(
         arguments,
         stop_event=stop_event,
+        test_farm_workflow=arguments.test_farm_workflow,
+        coupon_interval_minutes=arguments.three_knight_coupon_interval_minutes,
+        coupon_on_start=arguments.three_knight_coupon_on_start,
+        coupon_point_image=arguments.three_knight_point_image,
         input_worker=focus_controller.run_input,
         focus_game_window=focus_controller.focus_game_window,
         release_input=focus_controller.release_up,
@@ -309,25 +314,27 @@ def run_automation(arguments, *, stop_event=None):
     )
 
 
-def run_task_flow(arguments, *, stop_event=None, workflows_enabled=True, **profile_options):
+def run_task_flow(
+    arguments, *, stop_event=None, test_farm_workflow=False,
+    coupon_interval_minutes=THREE_KNIGHT_COUPON_INTERVAL_MINUTES,
+    coupon_on_start=THREE_KNIGHT_COUPON_ON_START,
+    coupon_point_image=THREE_KNIGHT_POINT_IMAGE,
+    **profile_options,
+):
     game_supervisor.set_ocr_resolution(getattr(arguments, "ocr_resolution", "auto"))
-    workflow = arguments.workflow if workflows_enabled else None
-    test_farm_workflow = workflows_enabled and arguments.test_farm_workflow
+    workflow = arguments.workflow
     post_match_stage = None
     if (
         workflow == "coupon"
-        and (
-            arguments.three_knight_coupon_interval_minutes > 0
-            or arguments.three_knight_coupon_on_start
-        )
+        and (coupon_interval_minutes > 0 or coupon_on_start)
         and not test_farm_workflow
     ):
         post_match_stage = IntervalMatchEndStage(
-            arguments.three_knight_coupon_interval_minutes * 60,
+            coupon_interval_minutes * 60,
             ThreeKnightCouponWorkflow(ThreeKnightCouponWorkflowSettings(
-                three_knight_point_image=arguments.three_knight_point_image,
+                three_knight_point_image=coupon_point_image,
             )),
-            run_on_start=arguments.three_knight_coupon_on_start,
+            run_on_start=coupon_on_start,
         )
     profile = afk_conan.TaskProfile(
         target_image_name=arguments.target_image or "unused-in-farm-only-mode.png",

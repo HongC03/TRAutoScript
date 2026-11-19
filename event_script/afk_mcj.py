@@ -58,7 +58,7 @@ def run_automation(arguments, stop_event):
         return afk_conan.is_game_window(afk_conan.get_active_window())
 
     result = run_task_flow(
-        arguments, stop_event=stop_event, workflows_enabled=False,
+        arguments, stop_event=stop_event,
         input_worker=dance_input, focus_game_window=focus_game,
     )
     if worker_error is not None:
@@ -76,6 +76,10 @@ def main(argv=None):
         parser, target_image=TARGET_IMAGE_NAME, stats_path=BASE_DIR / "mcj_stats.json",
     )
     afk_arrow_dance.add_capture_options(parser)
+    parser.add_argument(
+        "--workflow", choices=("farm", "coupon", "off"), default="off",
+        help="Select the scheduled workflow (default: %(default)s).",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Log dance answers without playing them.")
     parser.add_argument("--record", action="store_true",
                         help="Save a 60 FPS Tales Runner MP4 in Videos/Screen Recordings until MCJ exits.")
