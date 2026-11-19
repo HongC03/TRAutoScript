@@ -19,7 +19,7 @@ def _has_pixels(image):
     )
 
 
-def _grab_window(window):
+def grab_window(window):
     """Capture the client area and retain its current desktop coordinates."""
     from PIL import ImageGrab
 
@@ -71,7 +71,7 @@ class GameScreenCapture:
             if window is None:
                 raise ScreenCaptureUnavailable(str(desktop_error)) from desktop_error
             try:
-                image, origin = _grab_window(window)
+                image, origin = grab_window(window)
                 if not _has_pixels(image):
                     raise OSError("Game window capture is empty or black")
                 return image, origin

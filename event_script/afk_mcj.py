@@ -2,6 +2,7 @@
 
 import argparse
 import sys
+from contextlib import nullcontext
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -76,6 +77,8 @@ def main(argv=None):
     )
     afk_arrow_dance.add_capture_options(parser)
     parser.add_argument("--dry-run", action="store_true", help="Log dance answers without playing them.")
+    parser.add_argument("--record", action="store_true",
+                        help="Save a 60 FPS Tales Runner MP4 in Videos/Screen Recordings until MCJ exits.")
     parser.add_argument("--toggle-hotkey", default=TOGGLE_HOTKEY,
                         help="Global on/off hotkey (default: %(default)s).")
     arguments = parser.parse_args(argv)
@@ -83,10 +86,19 @@ def main(argv=None):
         parser.error("set --target-image")
     if not arguments.toggle_hotkey.strip():
         parser.error("--toggle-hotkey must not be empty")
-    return run_with_toggle(
-        lambda stop_event: run_automation(arguments, stop_event),
-        toggle_hotkey=arguments.toggle_hotkey,
-    )
+    recording = nullcontext()
+    if arguments.record:
+        from event_script.window_recording import record_game_window
+
+        recording = record_game_window()
+    try:
+        with recording:
+            return run_with_toggle(
+                lambda stop_event: run_automation(arguments, stop_event),
+                toggle_hotkey=arguments.toggle_hotkey,
+            )
+    except KeyboardInterrupt:
+        return 130
 
 
 if __name__ == "__main__":

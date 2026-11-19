@@ -5,7 +5,9 @@ import ctypes
 import random
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
+from textwrap import wrap
 
 import cv2
 import numpy as np
@@ -24,6 +26,9 @@ ARROW_KEYS = ("up", "down", "left", "right")
 MAX_ARROWS = 12
 TAP_SECONDS = 0.035
 DEBUG_WINDOW = "Arrow Dance Debug"
+DEBUG_PANEL_WIDTH = 560
+DEBUG_WINDOW_SIZE = (1720, 921)
+ROUND_TIMER_THRESHOLD = 400
 
 # Color coverage for each pose, measured on a 3-row by 5-column grid.
 # Values are counts in hundreds of pixels at the reference frame size.
@@ -68,11 +73,13 @@ class Observation:
     pose: str
     eyes: tuple
     instructor: str = "unknown"
-    blue_pose_score: int | None = None
+    pose_distance: float | None = None
+    closest_pose: str | None = None
+    pose_offset: tuple[int, int] = (0, 0)
 
     @property
     def round_active(self):
-        return self.timer_pixels > 400
+        return self.timer_pixels > ROUND_TIMER_THRESHOLD
 
 
 def shifted_suit_coverage(frame, bounds):
@@ -127,6 +134,7 @@ def observe(frame):
         coverage = suit_grid(mask)
         if coverage.sum() < 42:
             continue
+        dx = dy = 0
         if color == "blue":
             dx, dy = blue_timer_offset(frame)
             if dx or dy:
@@ -134,20 +142,25 @@ def observe(frame):
                 coverage = suit_grid(cv2.inRange(cv2.cvtColor(region, cv2.COLOR_BGR2HSV), lower, upper))
         distances = np.abs(templates - coverage).sum(axis=1)
         best = int(np.argmin(distances))
-        if distances[best] <= MAX_SUIT_POSE_DISTANCE:
-            score = int(distances[best]) if color == "blue" else None
-            return Observation(pixels, directions[best], (), color, score)
+        distance = float(distances[best])
+        closest = directions[best]
+        if distance <= MAX_SUIT_POSE_DISTANCE:
+            return Observation(pixels, closest, (), color, distance, closest, (dx, dy))
         if color == "pink":
             shifted = shifted_suit_coverage(frame, (lower, upper))
             scores = np.abs(shifted[:, None, :] - templates[None, :, :]).sum(axis=2)
             scores = scores + SUIT_OFFSET_COST[:, None]
             shift, best = np.unravel_index(scores.argmin(), scores.shape)
-            if scores[shift, best] <= MAX_SUIT_POSE_DISTANCE:
-                return Observation(pixels, directions[best], (), color)
+            if scores[shift, best] < distance:
+                distance = float(scores[shift, best])
+                closest = directions[best]
+                dx, dy = map(int, SUIT_OFFSETS[shift])
+            if distance <= MAX_SUIT_POSE_DISTANCE:
+                return Observation(pixels, closest, (), color, distance, closest, (dx, dy))
         # Spark effects can briefly hide the cap during an otherwise clear pose.
         # For idle, require the cap as well as the suit to establish identity.
         if coverage[:5].sum() >= 8:
-            return Observation(pixels, "idle", (), color)
+            return Observation(pixels, "idle", (), color, distance, closest, (dx, dy))
 
     pose, eyes = orange_pose(frame)
     return Observation(pixels, pose, eyes, "orange" if pose != "unknown" else "unknown")
@@ -246,8 +259,9 @@ class RoundReader:
         # A clear blue pose can fit in a single frame when capture runs slowly.
         strong_blue_sample = (
             0.085 <= frame_gap <= 0.25
-            and observation.blue_pose_score is not None
-            and observation.blue_pose_score <= 7
+            and observation.instructor == "blue"
+            and observation.pose_distance is not None
+            and observation.pose_distance <= 7
         )
         if pose == "unknown" or (duration < STABLE_POSE_SECONDS and not strong_blue_sample):
             return None
@@ -278,27 +292,62 @@ def normalized_frame(frame, crop):
     return cv2.resize(frame, FRAME_SIZE, interpolation=cv2.INTER_LINEAR)
 
 
-def debug_frame(frame, observation, reader, now, *, live_play, video, hotkey):
-    view = frame.copy()
+def debug_frame(frame, observation, reader, now, *, mode, controls, fps, log, last_tap):
+    width, height = FRAME_SIZE
+    view = np.full((height, width + DEBUG_PANEL_WIDTH, 3), (28, 22, 17), dtype=np.uint8)
+    ink = (246, 238, 231)
+    muted = (190, 173, 155)
+    accent = (222, 230, 114)
+
+    def text(value, x, y, scale=0.67, color=ink, weight=1):
+        cv2.putText(view, value, (x, y), cv2.FONT_HERSHEY_SIMPLEX, scale, color, weight, cv2.LINE_AA)
+
     pose_region = SUIT if observation.instructor in SUIT_PROFILES else EYES
-    for x1, y1, x2, y2 in (TIMER, pose_region):
-        cv2.rectangle(view, (x1, y1), (x2, y2), (0, 255, 255), 2)
-    for x, y, area in observation.eyes:
-        cv2.circle(view, (x, y), 5, (0, 255, 255), -1)
-        cv2.putText(view, str(area), (x + 7, y), 0, 0.4, (0, 255, 255), 1)
-    cv2.rectangle(view, (0, 0), (1288, 83), (22, 20, 18), -1)
-    mode = "LIVE KEYS" if live_play else "DRY RUN"
-    controls = "Space pause  /  N step  /  Q quit" if video else f"{hotkey.upper()} / Q to stop"
-    lines = (
-        f"{mode}  {now:.2f}s  |  {reader.state}  |  {controls}",
-        f"{observation.instructor.capitalize()} / {observation.pose}   "
-        f"Timer pixels: {observation.timer_pixels}   "
-        f"Recognized: {', '.join(reader.sequence) or '-'}"
-        + (f"   Guess: {reader.guess}" if reader.guess else ""),
+    if frame is None:
+        text("Focus Tales Runner to resume the preview", 90, height // 2, 1.15, muted, 2)
+    else:
+        view[:, :width] = frame
+        dx, dy = observation.pose_offset
+        x1, y1, x2, y2 = pose_region
+        for x1, y1, x2, y2 in (TIMER, (x1 + dx, y1 + dy, x2 + dx, y2 + dy)):
+            cv2.rectangle(view, (x1, y1), (x2, y2), accent, 2)
+        for x, y, area in observation.eyes:
+            cv2.circle(view, (x, y), 5, accent, -1)
+            text(str(area), x + 7, y, 0.45, accent)
+
+    panel_x = width + 24
+    text("Arrow Dance Debug", panel_x, 45, 1.12, ink, 2)
+    text(f"{mode}  /  {now:.2f}s", panel_x, 78, 0.67, accent, 2)
+    text(controls, panel_x, 108, color=muted)
+    cv2.line(view, (panel_x, 126), (view.shape[1] - 24, 126), (77, 63, 49), 1)
+
+    distance = observation.pose_distance
+    match = (
+        f"{observation.closest_pose}  {distance:g} / {MAX_SUIT_POSE_DISTANCE} max"
+        if distance is not None else f"{len(observation.eyes)} lens blobs" if observation.eyes else "-"
     )
-    for i, line in enumerate(lines):
-        cv2.putText(view, line, (16, 30 + i * 34), 0, 0.72, (230, 239, 248), 2, cv2.LINE_AA)
-    cv2.imshow(DEBUG_WINDOW, cv2.resize(view, (850, 653)))
+    metrics = (
+        ("Round", reader.state if frame is not None else "Paused: game out of focus"),
+        ("Instructor", observation.instructor.capitalize()),
+        ("Frame pose", observation.pose),
+        ("Pose match", match),
+        ("Timer", f"{observation.timer_pixels} px / >{ROUND_TIMER_THRESHOLD} active"),
+        ("Frame rate", f"{fps:.1f} fps" if fps else "-"),
+        ("Last tap", last_tap or "-"),
+    )
+    for i, (label, value) in enumerate(metrics):
+        y = 159 + i * 33
+        text(label, panel_x, y, color=muted)
+        text(value, panel_x + 138, y, weight=2)
+    sequence = " ".join(reader.sequence) or "-"
+    text("Recognized", panel_x, 400, 0.74, ink, 2)
+    for i, line in enumerate(wrap(sequence, width=44)):
+        text(line, panel_x, 428 + 25 * i, color=accent)
+    text("Recent log", panel_x, 492, 0.85, ink, 2)
+    lines = [line for entry in log for line in wrap(entry, width=47, subsequent_indent="    ")]
+    for i, line in enumerate(lines[-16:]):
+        text(line, panel_x, 524 + i * 28, scale=0.62)
+    cv2.imshow(DEBUG_WINDOW, view)
 
 
 def debug_key(delay):
@@ -342,6 +391,17 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
     previous = None
     paused = False
     debug_open = False
+    recent_log = deque(maxlen=24)
+    frame_times = deque(maxlen=12)
+    last_tap = None
+    mode = "VIDEO DRY RUN" if video else "LIVE INPUT" if play else "LIVE DRY RUN"
+    controls = "Space pause  /  N step  /  Q quit" if video else f"{hotkey.upper()} / Q to stop"
+
+    def report(message):
+        print(message, flush=True)
+        if debug:
+            recent_log.append(message)
+
     try:
         if video is not None:
             capture = cv2.VideoCapture(video)
@@ -356,8 +416,7 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                 from event_script.automation_toggle import register_toggle_hotkey
 
                 remove_hotkey = register_toggle_hotkey(hotkey, stop.set)
-                print(f"Focus Tales Runner before the next round. {hotkey.upper()} stops the script.",
-                      flush=True)
+                report(f"Focus Tales Runner before the next round. {hotkey.upper()} stops the script.")
 
         while not stop.is_set():
             frame_started = time.monotonic()
@@ -374,7 +433,14 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                         reader = RoundReader()
                         previous = None
                         window_handle = None
-                        print("Waiting for Tales Runner to regain focus.", flush=True)
+                        frame_times.clear()
+                        now = time.monotonic() - start
+                        report(f"{now:6.2f}s  Waiting for Tales Runner to regain focus.")
+                        if debug_open:
+                            debug_frame(
+                                None, Observation(0, "unknown", ()), reader, now, mode=mode,
+                                controls=controls, fps=None, log=recent_log, last_tap=last_tap,
+                            )
                     if debug_open and debug_key(1) in (ord("q"), 27):
                         stop.set()
                         break
@@ -403,15 +469,27 @@ def run(*, video=None, play=False, debug=False, crop=None, stop=None, hotkey="f8
                 else:
                     action = "Would send"
                 source = " (guess)" if tap.guessed else ""
-                print(f"{now:6.2f}s  {action}: {tap.direction}{source}", flush=True)
+                last_tap = f"{action}: {tap.direction}{source}"
+                report(f"{now:6.2f}s  {last_tap}")
             snapshot = reader.state, tuple(reader.sequence)
             if snapshot != previous:
-                print(f"{now:6.2f}s  {reader.state}: {' '.join(reader.sequence)}", flush=True)
+                report(f"{now:6.2f}s  {reader.state}: {' '.join(reader.sequence)}")
                 previous = snapshot
             if debug:
-                debug_frame(frame, observation, reader, now, live_play=play,
-                            video=video is not None, hotkey=hotkey)
-                debug_open = True
+                if not debug_open:
+                    cv2.namedWindow(DEBUG_WINDOW, cv2.WINDOW_NORMAL | cv2.WINDOW_KEEPRATIO)
+                    debug_open = True
+                    cv2.resizeWindow(DEBUG_WINDOW, *DEBUG_WINDOW_SIZE)
+                if capture is None:
+                    frame_times.append(now)
+                    elapsed = frame_times[-1] - frame_times[0]
+                    display_fps = (len(frame_times) - 1) / elapsed if elapsed else None
+                else:
+                    display_fps = fps
+                debug_frame(
+                    frame, observation, reader, now, mode=mode, controls=controls,
+                    fps=display_fps, log=recent_log, last_tap=last_tap,
+                )
             if capture is None:
                 if debug_open and debug_key(1) in (ord("q"), 27):
                     stop.set()
@@ -447,7 +525,7 @@ def enable_dpi_awareness():
 
 
 def add_capture_options(parser):
-    parser.add_argument("--debug", action="store_true", help="Show the detector and arrow queue.")
+    parser.add_argument("--debug", action="store_true", help="Show the preview, detector stats and log.")
     parser.add_argument("--crop", type=int, nargs=4, metavar=("X", "Y", "WIDTH", "HEIGHT"),
                         help="Crop the source before detection if its framing differs.")
 

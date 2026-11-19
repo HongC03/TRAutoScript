@@ -52,6 +52,8 @@ python -m event_script.afk_mcj --debug
 
 MCJ looks for the “和MCJ一起跳舞！” card using `scr/mcj_dance.png`. Use `--target-image` to override it. Use `--dry-run --debug` to inspect the detected poses without sending arrows. The shared task flow still runs in this mode. See **Arrow Dance** below to test the detector against a recording. MCJ stores its statistics in `mcj_stats.json` by default.
 
+Add `--record` to save a 60 FPS MP4 of the Tales Runner window in `Videos\Screen Recordings`. Recording begins when the game window becomes available, continues while automation is toggled off with **F3**, and pauses while the game is minimized or unavailable. The recorder uses Windows Graphics Capture and repeats the last image when the game supplies frames below 60 FPS. Keep Tales Runner in front if the console reports a fallback to foreground capture. Press **Ctrl+C** to close MCJ and finalize the video-only MP4. The console prints the file path for replay in Arrow Dance. Force-closing the process can leave the MP4 unreadable.
+
 ## Arrow Dance
 
 Preview the detector on a recording:
@@ -60,7 +62,7 @@ Preview the detector on a recording:
 python -m event_script.afk_arrow_dance --video "C:\path\to\recording.mp4" --debug
 ```
 
-The detector automatically recognizes the orange, blue, and pink instructors. The preview shows the timer and instructor regions, detected character and pose, and arrows recognized in the current round. Press **Space** to pause or resume, **N** to step while paused, and **Q** to quit. Omit `--debug` to scan the recording as fast as possible and print the recognition times.
+The detector automatically recognizes the orange, blue, and pink instructors. The resizable debug window shows the capture regions, round status, closest pose match, frame rate, last tap, and recent log messages. In video mode, press **Space** to pause or resume, **N** to step while paused, and **Q** to quit. Omit `--debug` to scan the recording as fast as possible and print the recognition times.
 
 For live play, launch the command below and focus Tales Runner before the next round. The script taps the matching arrow as soon as it recognizes each new pose. If the active round has no recognized pose after 0.85 seconds, it taps one random arrow and marks it as a guess. Press **F8** to stop.
 
